@@ -16,6 +16,17 @@ const FONGMI_TITLE_CLEAN_RULES = [
   [/[_.-]+/g, " "]
 ];
 
+const FONGMI_BRACKET_KEYWORD_IGNORE_RULES = [
+  /^(?:19|20)\d{2}$/i,
+  /^\d{1,4}$/i,
+  /^(?:4k|2k|2160p|1080p|720p|480p|hdr|dv|dolby|atmos|web-?dl|web-?rip|blu-?ray|bluray|x265|x264|h\.?265|h\.?264|hevc|avc|aac|flac|dts|ddp|60fps|fps|mp4|mkv|tc|hd|bd|tv)$/i,
+  /^(?:qiyi|iqiyi|qq|youku|bilibili|mgtv|imgo|migu|sohu|leshi|xigua)$/i,
+  /^(?:国语|中字|中文字幕|内嵌字幕|简体|繁体|简繁|无水印|高清|蓝光|合集|全集|完结|更至?\d+集?)$/i,
+  /^(?:第\s*)?[零一二三四五六七八九十百零〇两\d]+\s*[集期话章回段篇]$/i,
+  /^[Ss]\d{1,2}\s*[Ee]\d{1,4}$/i,
+  /^[Ee][Pp]?\.?\s*\d{1,4}$/i
+];
+
 const FONGMI_EPISODE_CLEAN_RULES = [
   [/\[[^\]]*\]/g, " "],
   [/[【（(][^】）)]*[】）)]/g, " "],
@@ -88,6 +99,46 @@ function normalizeFongmiTitleByRegex(name) {
     text = text.replace(pattern, replacement);
   });
   return text;
+}
+
+/**
+ * 判断括号中的内容是否更像清晰度、平台、年份或集数噪音。
+ * @param {string} keyword 候选关键词
+ * @returns {boolean} 是否应跳过
+ */
+function shouldSkipFongmiBracketKeyword(keyword) {
+  const text = normalizeSpaces(String(keyword || "").trim());
+  if (!text) return true;
+  return FONGMI_BRACKET_KEYWORD_IGNORE_RULES.some(pattern => pattern.test(text));
+}
+
+/**
+ * 从标题的 【】 和 [] 中提取可用于回退搜索的关键词。
+ * @param {string} name 原始标题
+ * @returns {string[]} 括号关键词数组
+ */
+function extractFongmiBracketKeywords(name) {
+  const text = String(name || "");
+  const keywords = [];
+  const pushKeyword = (value) => {
+    const keyword = normalizeSpaces(String(value || "").trim());
+    if (shouldSkipFongmiBracketKeyword(keyword) || keywords.includes(keyword)) return;
+    keywords.push(keyword);
+  };
+
+  const bracketPattern = /[【\[]([^【】\[\]]{1,60})[】\]]/g;
+  let match;
+  while ((match = bracketPattern.exec(text)) !== null) {
+    const inner = normalizeSpaces(match[1]).trim();
+    pushKeyword(inner);
+
+    const cleanedInner = normalizeSpaces(normalizeFongmiTitleByRegex(inner)).trim();
+    if (cleanedInner && cleanedInner !== inner) {
+      pushKeyword(cleanedInner);
+    }
+  }
+
+  return keywords;
 }
 
 /**
@@ -175,6 +226,10 @@ function buildFongmiSearchKeywords(name) {
   };
 
   pushKeyword(rawName);
+
+  for (const bracketKeyword of extractFongmiBracketKeywords(rawName)) {
+    pushKeyword(bracketKeyword);
+  }
 
   const cleanedName = normalizeSpaces(normalizeFongmiTitleByRegex(rawName)).trim();
   if (cleanedName && cleanedName !== rawName) {
