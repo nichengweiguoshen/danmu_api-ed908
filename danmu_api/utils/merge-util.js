@@ -2,7 +2,7 @@ import { globals } from '../configs/globals.js';
 import { log as baseLog } from './log-util.js';
 import { addAnime } from './cache-util.js';
 import { simplized } from '../utils/zh-util.js';
-import { normalizeSpaces } from '../utils/common-util.js';
+import { normalizeSpaces, convertChineseNumber } from '../utils/common-util.js';
 
 // ==============================================================================
 //  源合并处理工具 (merge-util.js)
@@ -139,7 +139,7 @@ const RegexStore = {
         PART_NORM_2:      /(?:Part|P)[\s.]*(\d+)/gi,
         FINAL:            /(?:The\s+)?Final\s+Season/gi,
         NORM:             /(?:Season|S)\s*(\d+)/gi,
-        CN:               /第\s*([一二三四五六七八九十])\s*季/g,
+        CN:               /第\s*([一二三四五六七八九十]+)\s*季/g,
         ROMAN:            /(\s|^)(IV|III|II|I)(\s|$)/g,
         INFO_STRONG:      /(?:season|s|第)\s*[0-9一二三四五六七八九十]+\s*(?:季|期|部(?!分))?/gi,
         PART_INFO_STRONG: /(?:part|p|第)\s*\d+\s*(?:部分)?/gi,
@@ -377,8 +377,7 @@ function cleanText(text) {
     clean = clean.replace(RegexStore.Season.FINAL, '最终季');
     clean = clean.replace(RegexStore.Season.NORM,  '第$1季');
     // 中文数字季度转阿拉伯数字
-    const cnNums = { '一':'1','二':'2','三':'3','四':'4','五':'5','六':'6','七':'7','八':'8','九':'9','十':'10' };
-    clean = clean.replace(RegexStore.Season.CN, (m, num) => `第${cnNums[num]}季`);
+    clean = clean.replace(RegexStore.Season.CN, (m, num) => `第${convertChineseNumber(num)}季`);
     // 罗马数字季度转阿拉伯数字
     clean = clean.replace(RegexStore.Season.ROMAN, (match, p1, roman, p2) => {
         const rMap = { 'I':'1','II':'2','III':'3','IV':'4' };
@@ -1142,7 +1141,7 @@ function identifyRedundantTitle(links, seriesTitle, sourceName) {
         try {
             let regex = _redundantTitleRegexCache.get(sourceName);
             if (!regex) {
-                const escapedSource = sourceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const escapedSource = escapeRegExp(sourceName);
                 regex = new RegExp(`(\\[|【|\\s)?${escapedSource}(\\]|】|\\s)?`, 'gi');
                 _redundantTitleRegexCache.set(sourceName, regex);
             }
@@ -1421,13 +1420,11 @@ function findBestAlignmentOffset(
             }
             // 匹配数量规模奖励（对齐对越多越可信）
             finalScore += Math.min(matchCount * 0.15, 1.5);
-            // 零偏移奖励：偏移为 0 说明主副源集数完全对齐，是最理想情况
+            // 零偏移奖励：主副源出现任意零差对集即表明集号一致，给予强信号
             const zeroDiffCount = numericDiffs.get('0.0000') || 0;
-            if (zeroDiffCount > 3) {
+            if (zeroDiffCount > 0) {
                 finalScore += MergeWeights.EP_ALIGN.ZERO_DIFF_BONUS_BASE;
                 finalScore += zeroDiffCount * MergeWeights.EP_ALIGN.ZERO_DIFF_BONUS_PER_HIT;
-            } else if (zeroDiffCount > 0) {
-                finalScore += zeroDiffCount * 2.0;
             }
             if (finalScore > maxScore) { maxScore = finalScore; bestOffset = offset; }
         }
@@ -2113,7 +2110,6 @@ function detectCollectionCandidates(curAnimes) {
     const collectionIds = new Set();
     if (!curAnimes || curAnimes.length === 0) return collectionIds;
 
-    const cnNums = {'一':'1','二':'2','三':'3','四':'4','五':'5','六':'6','七':'7','八':'8','九':'9','十':'10'};
     const groups = new Map();
 
     curAnimes.forEach(anime => {
@@ -2131,7 +2127,7 @@ function detectCollectionCandidates(curAnimes) {
                 protectedTitle = protectedTitle.replace(startBracketMatch[0], content + ' ');
             }
         }
-        protectedTitle = protectedTitle.replace(/第([一二三四五六七八九十])季/g, (m, num) => `第${cnNums[num]}季`);
+        protectedTitle = protectedTitle.replace(/第([一二三四五六七八九十]+)季/g, (m, num) => `第${convertChineseNumber(num)}季`);
 
         // 去除所有元数据，只保留核心标题用作分组 key
         let clean = protectedTitle
